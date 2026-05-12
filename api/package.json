@@ -6,11 +6,12 @@
   "scripts": {
   "start": "node src/index.js",
   "dev": "nodemon src/index.js",
-  "test": "jest"
+  "test": "jest --forceExit"
 },
 "jest": {
   "testEnvironment": "node",
-  "testMatch": ["**/*.test.js"]
+  "testMatch": ["**/*.test.js"],
+  "globalTeardown": "./jest.teardown.js"
 },
   "keywords": [],
   "author": "",
