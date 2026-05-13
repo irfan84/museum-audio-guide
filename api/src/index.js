@@ -6,10 +6,13 @@ require('dotenv').config();
 
 const db = require('./db/index');
 
-// Route imports  ← NEW
+const { authenticateToken } = require('./middleware/auth');
+
+// Route imports
 const exhibitRoutes = require('./routes/exhibits');
 const eventRoutes   = require('./routes/events');
 const adminRoutes   = require('./routes/admin');
+const authRoutes    = require('./routes/auth'); 
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -18,12 +21,15 @@ app.use(helmet());
 app.use(cors());
 app.use(morgan('dev'));
 app.use(express.json());
-app.use('/uploads', express.static('uploads'));
 
-// Routes  ← NEW
+// Public routes — no login required
 app.use('/api/exhibits', exhibitRoutes);
 app.use('/api/events',   eventRoutes);
-app.use('/api/admin',    adminRoutes);
+app.use('/api/auth',     authRoutes); 
+
+// Protected routes — JWT required for ALL admin endpoints
+// authenticateToken runs before every /api/admin request
+app.use('/api/admin', authenticateToken, adminRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

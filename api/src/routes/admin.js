@@ -4,6 +4,7 @@ const QRCode = require('qrcode');
 const PDFDocument = require('pdfkit');
 const upload = require('../middleware/upload');
 const db = require('../db/index');
+const { requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -39,7 +40,10 @@ router.get('/exhibits', async (req, res) => {
 });
 
 // POST /api/admin/exhibits/:id/audio
-router.post('/exhibits/:id/audio', upload.single('audio'), async (req, res) => {
+router.post('/exhibits/:id/audio',
+  requireRole('admin', 'editor'),
+  upload.single('audio'),
+  async (req, res) => {
   try {
     const exhibitId = req.params.id;
     const { language_code } = req.body;
