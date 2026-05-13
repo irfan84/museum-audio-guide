@@ -4,15 +4,17 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-  "start": "node src/index.js",
-  "dev": "nodemon src/index.js",
-  "test": "jest"
-},
-"jest": {
-  "testEnvironment": "node",
-  "testMatch": ["**/*.test.js"],
-  "globalTeardown": "./jest.teardown.js"
-},
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/*.test.js"
+    ],
+    "globalTeardown": "./jest.teardown.js"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -29,7 +31,7 @@
     "pdfkit": "^0.18.0",
     "pg": "^8.20.0",
     "qrcode": "^1.5.4",
-    "uuid": "^14.0.0"
+    "uuid": "^7.0.3"
   },
   "devDependencies": {
     "jest": "^30.4.2",

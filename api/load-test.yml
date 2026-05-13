@@ -1,0 +1,24 @@
+config:
+  target: "http://localhost:3000"
+  phases:
+    - duration: 30
+      arrivalRate: 5
+      rampTo: 50
+      name: "Ramp up to 50 concurrent visitors"
+
+scenarios:
+  - name: "Visitor scans QR and gets exhibit"
+    flow:
+      - get:
+          url: "/api/exhibits/qr/exhibit-geo-001"
+          expect:
+            - statusCode: 200
+      - post:
+          url: "/api/events/scan"
+          json:
+            device_id: "load-test-device"
+            exhibit_id: 1
+            language_code: "ur"
+            event_id: "load-{{ $randomNumber(1,999999) }}"
+          expect:
+            - statusCode: 200

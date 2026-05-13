@@ -46,14 +46,18 @@ router.post('/exhibits/:id/audio',
   async (req, res) => {
   try {
     const exhibitId = req.params.id;
-    const { language_code } = req.body;
 
-    if (!language_code) {
-      return res.status(400).json({ success: false, error: 'language_code is required' });
-    }
+    // Guard against undefined req.body (can happen when multer is mocked)
+    const language_code = req.body ? req.body.language_code : undefined;
 
+    // Validate file FIRST — before any database call
     if (!req.file || !req.file.path) {
       return res.status(400).json({ success: false, error: 'Audio file is required' });
+    }
+
+    // Validate language_code after file check
+    if (!language_code) {
+      return res.status(400).json({ success: false, error: 'language_code is required' });
     }
 
     const exhibitRes = await db.query(
@@ -164,7 +168,7 @@ router.get('/exhibits/:id/qr/pdf', async (req, res) => {
     const { title, hall_name } = exhibitRes.rows[0];
     const token = await getOrCreateQrToken(exhibitId);
     const scanUrl = `${process.env.API_BASE_URL}/api/exhibits/qr/${token}`;
-    const qrDataUrl = await QRCode.toDataURL(scanUrl);  // reuse scanUrl — no duplication
+    const qrDataUrl = await QRCode.toDataURL(scanUrl);
     const qrImageBase64 = qrDataUrl.split(',')[1];
     const qrBuffer = Buffer.from(qrImageBase64, 'base64');
 
@@ -191,7 +195,6 @@ router.get('/exhibits/:id/qr/pdf', async (req, res) => {
     const qrY = height * 0.30;
     doc.image(qrBuffer, qrX, qrY, { fit: [qrSize, qrSize], align: 'center' });
 
-    // Move cursor below the image manually before writing text
     doc.y = qrY + qrSize + 10;
 
     doc.fontSize(10).font('Helvetica').fillColor('#6B7280')
@@ -199,7 +202,7 @@ router.get('/exhibits/:id/qr/pdf', async (req, res) => {
 
     doc.moveDown(0.3);
     doc.fontSize(8).fillColor('#9CA3AF')
-   .text('Scan to hear the audio guide', { align: 'center' });
+    .text('Scan to hear the audio guide', { align: 'center' });
 
     doc.end();
   } catch (err) {
