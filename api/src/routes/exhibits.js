@@ -7,22 +7,80 @@ const db      = require('../db/index');
 router.get('/', async (req, res) => {
   try {
     const result = await db.query(`
-      SELECT
-        e.id,
-        e.category,
-        e.status,
-        h.name  AS hall_name,
-        t.title,
-        t.language_code
-      FROM exhibits e
-      LEFT JOIN halls h             ON h.id = e.hall_id
-      LEFT JOIN exhibit_translations t ON t.exhibit_id = e.id
-      WHERE e.status = 'live'
-      ORDER BY e.id, t.language_code
-    `);
+  SELECT
+    e.id,
+    e.exhibit_number,
+    e.category,
+    e.status,
+    h.name  AS hall_name,
+    t.title,
+    t.language_code
+  FROM exhibits e
+  LEFT JOIN halls h ON h.id = e.hall_id
+  LEFT JOIN exhibit_translations t ON t.exhibit_id = e.id
+  WHERE e.status = 'live'
+  ORDER BY e.exhibit_number ASC, t.language_code
+`);
     res.json({ success: true, data: result.rows });
   } catch (err) {
     console.error('GET /exhibits error:', err);
+    res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
+
+// GET /api/exhibits/number/:num
+// Called when visitor taps an exhibit from the list
+router.get('/number/:num', async (req, res) => {
+  try {
+    const num = parseInt(req.params.num);
+
+    if (isNaN(num) || num <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid exhibit number'
+      });
+    }
+
+    const exhibitRes = await db.query(`
+      SELECT e.id, e.exhibit_number, e.category, e.status, h.name AS hall_name
+      FROM exhibits e
+      LEFT JOIN halls h ON h.id = e.hall_id
+      WHERE e.exhibit_number = $1 AND e.status = 'live'
+    `, [num]);
+
+    if (exhibitRes.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Exhibit not found'
+      });
+    }
+
+    const exhibitId = exhibitRes.rows[0].id;
+
+    const translationsRes = await db.query(
+      'SELECT language_code, title, transcript_text FROM exhibit_translations WHERE exhibit_id = $1',
+      [exhibitId]
+    );
+    const audioRes = await db.query(
+      'SELECT language_code, file_path, duration_secs FROM audio_files WHERE exhibit_id = $1',
+      [exhibitId]
+    );
+    const factsRes = await db.query(
+      'SELECT language_code, fact_text FROM facts WHERE exhibit_id = $1',
+      [exhibitId]
+    );
+
+    res.json({
+      success: true,
+      data: {
+        ...exhibitRes.rows[0],
+        translations: translationsRes.rows,
+        audio:        audioRes.rows,
+        facts:        factsRes.rows,
+      }
+    });
+  } catch (err) {
+    console.error('GET /exhibits/number/:num error:', err);
     res.status(500).json({ success: false, error: 'Server error' });
   }
 });
@@ -35,10 +93,10 @@ router.get('/:id', async (req, res) => {
 
     // Exhibit base info
     const exhibitRes = await db.query(`
-      SELECT e.id, e.category, e.status, h.name AS hall_name
-      FROM exhibits e
-      LEFT JOIN halls h ON h.id = e.hall_id
-      WHERE e.id = $1
+    SELECT e.id, e.exhibit_number, e.category, e.status, h.name AS hall_name
+    FROM exhibits e
+    LEFT JOIN halls h ON h.id = e.hall_id
+    WHERE e.id = $1
     `, [id]);
 
     if (exhibitRes.rows.length === 0) {
@@ -104,10 +162,10 @@ router.get('/qr/:token', async (req, res) => {
 
     // Fetch full exhibit data
     const exhibitRes = await db.query(`
-      SELECT e.id, e.category, e.status, h.name AS hall_name
-      FROM exhibits e
-      LEFT JOIN halls h ON h.id = e.hall_id
-      WHERE e.id = $1
+    SELECT e.id, e.exhibit_number, e.category, e.status, h.name AS hall_name
+    FROM exhibits e
+    LEFT JOIN halls h ON h.id = e.hall_id
+    WHERE e.id = $1
     `, [exhibitId]);
 
     const translationsRes = await db.query(

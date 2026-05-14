@@ -14,6 +14,7 @@ router.get('/exhibits', async (req, res) => {
     const result = await db.query(`
       SELECT
         e.id,
+        e.exhibit_number,
         t.title,
         e.category,
         h.name AS hall_name,
@@ -28,8 +29,8 @@ router.get('/exhibits', async (req, res) => {
         ON h.id = e.hall_id
       LEFT JOIN audio_files a
         ON a.exhibit_id = e.id
-      GROUP BY e.id, t.title, e.category, h.name, e.status, e.updated_at
-      ORDER BY e.updated_at DESC
+      GROUP BY e.id, e.exhibit_number, t.title, e.category, h.name, e.status, e.updated_at
+      ORDER BY e.exhibit_number ASC
     `);
 
     res.json({ success: true, data: result.rows });
@@ -47,15 +48,12 @@ router.post('/exhibits/:id/audio',
   try {
     const exhibitId = req.params.id;
 
-    // Guard against undefined req.body (can happen when multer is mocked)
     const language_code = req.body ? req.body.language_code : undefined;
 
-    // Validate file FIRST — before any database call
     if (!req.file || !req.file.path) {
       return res.status(400).json({ success: false, error: 'Audio file is required' });
     }
 
-    // Validate language_code after file check
     if (!language_code) {
       return res.status(400).json({ success: false, error: 'language_code is required' });
     }
@@ -149,8 +147,9 @@ router.get('/exhibits/:id/qr/pdf', async (req, res) => {
   try {
     const exhibitId = req.params.id;
 
+    // Fetch exhibit with exhibit_number included
     const exhibitRes = await db.query(
-      `SELECT e.id, t.title, h.name AS hall_name
+      `SELECT e.id, e.exhibit_number, t.title, h.name AS hall_name
        FROM exhibits e
        LEFT JOIN exhibit_translations t
          ON t.exhibit_id = e.id
@@ -165,7 +164,9 @@ router.get('/exhibits/:id/qr/pdf', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Exhibit not found' });
     }
 
-    const { title, hall_name } = exhibitRes.rows[0];
+    // Destructure including exhibit_number
+    const { title, hall_name, exhibit_number: exhibitNumber } = exhibitRes.rows[0];
+
     const token = await getOrCreateQrToken(exhibitId);
     const scanUrl = `${process.env.API_BASE_URL}/api/exhibits/qr/${token}`;
     const qrDataUrl = await QRCode.toDataURL(scanUrl);
@@ -173,36 +174,62 @@ router.get('/exhibits/:id/qr/pdf', async (req, res) => {
     const qrBuffer = Buffer.from(qrImageBase64, 'base64');
 
     const mmToPt = (mm) => mm * 2.83465;
-    const width = mmToPt(148);
+    const width  = mmToPt(148);
     const height = mmToPt(105);
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="qr-${exhibitId}.pdf"`);
+    res.setHeader('Content-Disposition', `inline; filename="qr-exhibit-${exhibitNumber || exhibitId}.pdf"`);
 
     const doc = new PDFDocument({ size: [width, height], margin: 20 });
     doc.pipe(res);
 
+    // ── Museum name header ────────────────────────────
     doc.fontSize(10).font('Helvetica-Bold').fillColor('#1B4332')
-    .text('Pakistan Museum of Natural History', { align: 'center' });
-
-    doc.moveDown(0.5);
-    doc.fontSize(12).font('Helvetica').text(title || 'Exhibit', {
-      align: 'center'
-    });
-
-    const qrSize = Math.min(width * 0.45, height * 0.45);
-    const qrX = (width - qrSize) / 2;
-    const qrY = height * 0.30;
-    doc.image(qrBuffer, qrX, qrY, { fit: [qrSize, qrSize], align: 'center' });
-
-    doc.y = qrY + qrSize + 10;
-
-    doc.fontSize(10).font('Helvetica').fillColor('#6B7280')
-    .text(hall_name || '', { align: 'center' });
+       .text('Pakistan Museum of Natural History', { align: 'center' });
 
     doc.moveDown(0.3);
-    doc.fontSize(8).fillColor('#9CA3AF')
-    .text('Scan to hear the audio guide', { align: 'center' });
+
+    // ── Exhibit title ─────────────────────────────────
+    doc.fontSize(11).font('Helvetica-Bold').fillColor('#1B4332')
+       .text(title || 'Exhibit', { align: 'center' });
+
+    doc.moveDown(0.3);
+
+    // ── Exhibit number — large and prominent ──────────
+    doc.fontSize(22).font('Helvetica-Bold').fillColor('#1B4332')
+       .text(`#${exhibitNumber || ''}`, { align: 'center' });
+
+    doc.moveDown(0.4);
+
+    // ── QR code image ─────────────────────────────────
+    const qrSize = Math.min(width * 0.42, height * 0.42);
+    const qrX    = (width - qrSize) / 2;
+    const qrY    = doc.y;
+    doc.image(qrBuffer, qrX, qrY, { fit: [qrSize, qrSize] });
+    doc.y = qrY + qrSize + 8;
+
+    // ── Primary instruction ───────────────────────────
+    doc.fontSize(9).font('Helvetica-Bold').fillColor('#1B4332')
+       .text('Scan with PMNH Audio Guide app', { align: 'center' });
+
+    doc.moveDown(0.25);
+
+    // ── Divider line ──────────────────────────────────
+    const lineY = doc.y;
+    doc.moveTo(40, lineY)
+       .lineTo(width - 40, lineY)
+       .strokeColor('#E5E7EB')
+       .lineWidth(0.5)
+       .stroke();
+
+    doc.moveDown(0.35);
+
+    // ── Fallback instruction ──────────────────────────
+    doc.fontSize(8).font('Helvetica').fillColor('#6B7280')
+       .text(
+         `No camera? Open app and tap exhibit #${exhibitNumber || ''}`,
+         { align: 'center' }
+       );
 
     doc.end();
   } catch (err) {

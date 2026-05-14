@@ -21,8 +21,8 @@ describe('Exhibits router', () => {
   it('GET /api/exhibits returns two exhibits', async () => {
     db.query.mockResolvedValueOnce({
       rows: [
-        { id: 1, category: 'gallery', status: 'live', hall_name: 'Main Hall', title: 'First Exhibit', language_code: 'en' },
-        { id: 2, category: 'gallery', status: 'live', hall_name: 'Side Hall', title: 'Second Exhibit', language_code: 'en' }
+        { id: 1, exhibit_number: 1, category: 'gallery', status: 'live', hall_name: 'Main Hall', title: 'First Exhibit', language_code: 'en' },
+        { id: 2, exhibit_number: 2, category: 'gallery', status: 'live', hall_name: 'Side Hall', title: 'Second Exhibit', language_code: 'en' }
       ]
     });
 
@@ -36,7 +36,7 @@ describe('Exhibits router', () => {
 
   it('GET /api/exhibits/1 returns exhibit with translations and audio', async () => {
     db.query
-      .mockResolvedValueOnce({ rows: [{ id: 1, category: 'gallery', status: 'live', hall_name: 'Main Hall' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 1, exhibit_number: 1, category: 'gallery', status: 'live', hall_name: 'Main Hall' }] })
       .mockResolvedValueOnce({ rows: [{ language_code: 'en', title: 'Exhibit One', transcript_text: 'Transcript', kids_transcript_text: 'Kids transcript' }] })
       .mockResolvedValueOnce({ rows: [{ language_code: 'en', file_path: '/audio/1.mp3', duration_secs: 120 }] })
       .mockResolvedValueOnce({ rows: [{ language_code: 'en', fact_text: 'Fun fact' }] });
@@ -45,7 +45,7 @@ describe('Exhibits router', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.data).toMatchObject({ id: 1, category: 'gallery', status: 'live', hall_name: 'Main Hall' });
+    expect(res.body.data).toMatchObject({ id: 1, exhibit_number: 1, category: 'gallery', status: 'live', hall_name: 'Main Hall' });
     expect(res.body.data.translations).toEqual([
       { language_code: 'en', title: 'Exhibit One', transcript_text: 'Transcript', kids_transcript_text: 'Kids transcript' }
     ]);
@@ -69,7 +69,7 @@ describe('Exhibits router', () => {
   it('GET /api/exhibits/qr/exhibit-geo-001 returns exhibit data with qr_token', async () => {
     db.query
       .mockResolvedValueOnce({ rows: [{ exhibit_id: 1 }] })
-      .mockResolvedValueOnce({ rows: [{ id: 1, category: 'gallery', status: 'live', hall_name: 'Main Hall' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 1, exhibit_number: 1, category: 'gallery', status: 'live', hall_name: 'Main Hall' }] })
       .mockResolvedValueOnce({ rows: [{ language_code: 'en', title: 'Exhibit One', transcript_text: 'Transcript', kids_transcript_text: 'Kids transcript' }] })
       .mockResolvedValueOnce({ rows: [{ language_code: 'en', file_path: '/audio/1.mp3', duration_secs: 120 }] })
       .mockResolvedValueOnce({ rows: [{ language_code: 'en', fact_text: 'Fun fact' }] });
@@ -78,7 +78,7 @@ describe('Exhibits router', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.data).toMatchObject({ id: 1, qr_token: 'exhibit-geo-001' });
+    expect(res.body.data).toMatchObject({ id: 1, exhibit_number: 1, qr_token: 'exhibit-geo-001' });
   });
 
   it('GET /api/exhibits/qr/bad-token returns 404 when QR code not found', async () => {
@@ -88,5 +88,40 @@ describe('Exhibits router', () => {
 
     expect(res.status).toBe(404);
     expect(res.body.success).toBe(false);
+  });
+
+  // ── New tests for exhibit number endpoint ─────────────
+
+  it('GET /api/exhibits/number/1 returns exhibit by number', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ id: 1, exhibit_number: 1, category: 'Geology', status: 'live', hall_name: 'Hall A' }] })
+      .mockResolvedValueOnce({ rows: [{ language_code: 'en', title: 'Himalayan Geology', transcript_text: 'test' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app).get('/api/exhibits/number/1');
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.exhibit_number).toBe(1);
+    expect(res.body.data.translations).toHaveLength(1);
+  });
+
+  it('GET /api/exhibits/number/999 returns 404 when not found', async () => {
+    db.query.mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app).get('/api/exhibits/number/999');
+
+    expect(res.status).toBe(404);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).toBe('Exhibit not found');
+  });
+
+  it('GET /api/exhibits/number/abc returns 400 for invalid number', async () => {
+    const res = await request(app).get('/api/exhibits/number/abc');
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).toBe('Invalid exhibit number');
   });
 });
