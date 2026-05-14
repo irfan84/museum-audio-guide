@@ -1,5 +1,6 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
+const { getAudioDurationInSeconds } = require('get-audio-duration');
 const QRCode = require('qrcode');
 const PDFDocument = require('pdfkit');
 const upload = require('../middleware/upload');
@@ -72,16 +73,28 @@ router.post('/exhibits/:id/audio',
       [exhibitId, language_code]
     );
 
+    // Calculate audio duration from the uploaded file
+    let durationSecs = null;
+    try {
+      const durationFloat = await getAudioDurationInSeconds(req.file.path);
+      durationSecs = Math.round(durationFloat);
+    } catch (metaErr) {
+      console.warn('Could not read audio duration:', metaErr.message);
+      // Continue without duration — not a fatal error
+    }
+
+    // Use durationSecs variable — not hardcoded NULL
     await db.query(
       `INSERT INTO audio_files (exhibit_id, language_code, file_path, duration_secs)
-       VALUES ($1, $2, $3, NULL)`,
-      [exhibitId, language_code, req.file.path]
+       VALUES ($1, $2, $3, $4)`,
+      [exhibitId, language_code, req.file.path, durationSecs]
     );
 
     res.json({
       success: true,
       file_path: req.file.path,
-      language_code
+      language_code,
+      duration_secs: durationSecs,
     });
   } catch (err) {
     console.error('POST /api/admin/exhibits/:id/audio error:', err);
@@ -147,7 +160,6 @@ router.get('/exhibits/:id/qr/pdf', async (req, res) => {
   try {
     const exhibitId = req.params.id;
 
-    // Fetch exhibit with exhibit_number included
     const exhibitRes = await db.query(
       `SELECT e.id, e.exhibit_number, t.title, h.name AS hall_name
        FROM exhibits e
@@ -164,7 +176,6 @@ router.get('/exhibits/:id/qr/pdf', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Exhibit not found' });
     }
 
-    // Destructure including exhibit_number
     const { title, hall_name, exhibit_number: exhibitNumber } = exhibitRes.rows[0];
 
     const token = await getOrCreateQrToken(exhibitId);
@@ -183,48 +194,36 @@ router.get('/exhibits/:id/qr/pdf', async (req, res) => {
     const doc = new PDFDocument({ size: [width, height], margin: 20 });
     doc.pipe(res);
 
-    // ── Museum name header ────────────────────────────
     doc.fontSize(10).font('Helvetica-Bold').fillColor('#1B4332')
        .text('Pakistan Museum of Natural History', { align: 'center' });
-
     doc.moveDown(0.3);
 
-    // ── Exhibit title ─────────────────────────────────
     doc.fontSize(11).font('Helvetica-Bold').fillColor('#1B4332')
        .text(title || 'Exhibit', { align: 'center' });
-
     doc.moveDown(0.3);
 
-    // ── Exhibit number — large and prominent ──────────
     doc.fontSize(22).font('Helvetica-Bold').fillColor('#1B4332')
        .text(`#${exhibitNumber || ''}`, { align: 'center' });
-
     doc.moveDown(0.4);
 
-    // ── QR code image ─────────────────────────────────
     const qrSize = Math.min(width * 0.42, height * 0.42);
     const qrX    = (width - qrSize) / 2;
     const qrY    = doc.y;
     doc.image(qrBuffer, qrX, qrY, { fit: [qrSize, qrSize] });
     doc.y = qrY + qrSize + 8;
 
-    // ── Primary instruction ───────────────────────────
     doc.fontSize(9).font('Helvetica-Bold').fillColor('#1B4332')
        .text('Scan with PMNH Audio Guide app', { align: 'center' });
-
     doc.moveDown(0.25);
 
-    // ── Divider line ──────────────────────────────────
     const lineY = doc.y;
     doc.moveTo(40, lineY)
        .lineTo(width - 40, lineY)
        .strokeColor('#E5E7EB')
        .lineWidth(0.5)
        .stroke();
-
     doc.moveDown(0.35);
 
-    // ── Fallback instruction ──────────────────────────
     doc.fontSize(8).font('Helvetica').fillColor('#6B7280')
        .text(
          `No camera? Open app and tap exhibit #${exhibitNumber || ''}`,

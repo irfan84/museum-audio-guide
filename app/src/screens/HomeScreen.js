@@ -13,7 +13,7 @@ import OnboardingModal from '../components/OnboardingModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, LANGUAGES, STORAGE_KEYS } from '../constants';
-import { getExhibits } from '../services/api';
+import { getExhibits, getExhibitByNumber } from '../services/api';
 
 const categoryMeta = {
   Geology:       { icon: 'mountain', label: 'Geology' },
@@ -77,6 +77,7 @@ export default function HomeScreen({ navigation }) {
     }
   };
 
+  // Fix 1 — exhibit card navigates to Player, not Scan
   const renderExhibitCard = ({ item }) => {
     const meta = categoryMeta[item.category] || {
       icon: 'leaf',
@@ -86,7 +87,17 @@ export default function HomeScreen({ navigation }) {
     return (
       <Pressable
         style={styles.exhibitCard}
-        onPress={() => navigation.navigate('Scan')}
+        onPress={async () => {
+          try {
+            const data = await getExhibitByNumber(item.exhibit_number);
+            navigation.navigate('Player', {
+              exhibit:  data.data,
+              language: selectedLanguage,
+            });
+          } catch (err) {
+            console.error('Failed to load exhibit:', err);
+          }
+        }}
       >
         <View style={styles.exhibitIconWrapper}>
           <Ionicons name={meta.icon} size={22} color={COLORS.green} />
@@ -148,10 +159,8 @@ export default function HomeScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.safeArea}>
 
-      {/* ── HEADER — matches design: green rounded card ── */}
+      {/* ── HEADER ── */}
       <View style={styles.header}>
-
-        {/* Top row: title + logo */}
         <View style={styles.headerTop}>
           <View style={styles.headerTextGroup}>
             <Text style={styles.headerTitle}>PMNH Audio Guide</Text>
@@ -159,13 +168,10 @@ export default function HomeScreen({ navigation }) {
               Pakistan Museum of Natural History
             </Text>
           </View>
-          {/* Logo circle — gold leaf on dark green */}
           <View style={styles.logoCircle}>
             <Ionicons name="leaf" size={18} color="#EF9F27" />
           </View>
         </View>
-
-        {/* Language chips row */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -200,7 +206,7 @@ export default function HomeScreen({ navigation }) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Scan hero card */}
+        {/* Fix 2 — hero button opens Scanner tab, not getExhibitByNumber */}
         <View style={styles.heroCard}>
           <View style={styles.heroIconWrapper}>
             <Ionicons name="qr-code" size={44} color={COLORS.white} />
@@ -211,7 +217,7 @@ export default function HomeScreen({ navigation }) {
           </Text>
           <Pressable
             style={styles.heroButton}
-            onPress={() => navigation.navigate('Scan')}
+            onPress={() => navigation.navigate('Tabs', { screen: 'Scan' })}
           >
             <Ionicons
               name="camera-outline"
@@ -236,11 +242,11 @@ export default function HomeScreen({ navigation }) {
         {/* Exhibit list — first 3 */}
         {renderContent()}
 
-        {/* View all button */}
+        {/* Fix 3 — View all navigates to Exhibits tab correctly */}
         {!loading && !error && exhibits.length > 0 && (
           <Pressable
             style={styles.viewAllBtn}
-            onPress={() => navigation.navigate('Exhibits')}
+            onPress={() => navigation.navigate('Tabs', { screen: 'Exhibits' })}
           >
             <Text style={styles.viewAllText}>View all exhibits →</Text>
           </Pressable>
@@ -253,27 +259,23 @@ export default function HomeScreen({ navigation }) {
 
       {/* DEV ONLY — remove before launch */}
       <Pressable
-       onPress={() => AsyncStorage.removeItem(STORAGE_KEYS.ONBOARDED)}
-       style={{ padding: 8, alignItems: 'center', marginTop: 8 }}
+        onPress={() => AsyncStorage.removeItem(STORAGE_KEYS.ONBOARDED)}
+        style={{ padding: 8, alignItems: 'center', marginTop: 8 }}
       >
-      <Text style={{ fontSize: 10, color: COLORS.grayText }}>
-      Reset onboarding (dev only)
-      </Text>
-  </Pressable>
-      
+        <Text style={{ fontSize: 10, color: COLORS.grayText }}>
+          Reset onboarding (dev only)
+        </Text>
+      </Pressable>
+
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-
-  // ── Safe area wraps everything ──────────────────────
   safeArea: {
     flex: 1,
-    backgroundColor: COLORS.green, // matches header colour at top
+    backgroundColor: COLORS.green,
   },
-
-  // ── Header ─────────────────────────────────────────
   header: {
     backgroundColor: COLORS.green,
     paddingHorizontal: 16,
@@ -301,7 +303,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 3,
   },
-  // Logo circle — small rounded box with gold leaf
   logoCircle: {
     width: 36,
     height: 36,
@@ -310,7 +311,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  // Language chips
   langRow: {
     flexDirection: 'row',
     gap: 8,
@@ -340,8 +340,6 @@ const styles = StyleSheet.create({
   langLabelInactive: {
     color: 'rgba(255,255,255,0.75)',
   },
-
-  // ── Scroll body ─────────────────────────────────────
   scrollView: {
     flex: 1,
     backgroundColor: COLORS.grayLight,
@@ -350,8 +348,6 @@ const styles = StyleSheet.create({
     padding: 14,
     paddingBottom: 32,
   },
-
-  // ── Scan hero card ──────────────────────────────────
   heroCard: {
     backgroundColor: COLORS.greenMid,
     borderRadius: 20,
@@ -397,8 +393,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
-
-  // ── Exhibits section ────────────────────────────────
   sectionHeader: {
     marginBottom: 6,
   },
@@ -413,8 +407,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     lineHeight: 18,
   },
-
-  // ── Exhibit cards ───────────────────────────────────
   exhibitList: {
     paddingBottom: 8,
   },
@@ -470,8 +462,6 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     marginLeft: 6,
   },
-
-  // ── States ──────────────────────────────────────────
   stateContainer: {
     padding: 24,
     alignItems: 'center',
@@ -494,8 +484,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 13,
   },
-
-  // ── View all button ─────────────────────────────────
   viewAllBtn: {
     borderWidth: 1.5,
     borderColor: COLORS.green,
