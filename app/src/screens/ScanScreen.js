@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useFocusEffect } from '@react-navigation/native';
 import { COLORS, STORAGE_KEYS } from '../constants';
 import { getExhibitByQR, recordScan } from '../services/api';
 import { useDeviceId } from '../hooks/useDeviceId';
@@ -17,19 +18,19 @@ import { useDeviceId } from '../hooks/useDeviceId';
 export default function ScanScreen({ navigation }) {
   const [permission, requestPermission] = useCameraPermissions();
   const [selectedLanguage, setSelectedLanguage] = useState('en');
-  const [scanning, setScanning] = useState(true);
+  const [scanning, setScanning] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
   const deviceId = useDeviceId();
 
+  // Load language on mount
   useEffect(() => {
     const init = async () => {
-      // Load saved language
       try {
         const storedLanguage = await AsyncStorage.getItem(STORAGE_KEYS.LANGUAGE);
         if (storedLanguage) setSelectedLanguage(storedLanguage);
       } catch (err) {
         console.log('Error loading language', err);
       }
-      // Request camera permission if not yet granted
       if (!permission?.granted) {
         await requestPermission();
       }
@@ -37,20 +38,35 @@ export default function ScanScreen({ navigation }) {
     init();
   }, []);
 
+  // Reset scanner and activate camera when screen comes into focus
+  // Deactivate camera when screen loses focus — fixes green dot issue
+  useFocusEffect(
+    useCallback(() => {
+      setCameraActive(true);
+      setScanning(false);
+      return () => {
+        setCameraActive(false);
+      };
+    }, [])
+  );
+
   const handleOpenSettings = () => {
     Linking.openSettings();
   };
 
   const onBarcodeScanned = useCallback(
     async ({ data }) => {
-      if (!scanning) return;
+      if (scanning) return;
+      setScanning(true);
 
-      setScanning(false);
       const token = data?.split('/').filter(Boolean).pop();
 
       if (!token) {
-        Alert.alert('Invalid QR code', 'Please try again.');
-        setTimeout(() => setScanning(true), 2000);
+        Alert.alert(
+          'Invalid QR Code',
+          'This QR code is not a valid PMNH exhibit code. Please try again.',
+          [{ text: 'OK', onPress: () => setScanning(false) }]
+        );
         return;
       }
 
@@ -63,7 +79,6 @@ export default function ScanScreen({ navigation }) {
         }
 
         const eventId = Math.random().toString(36).slice(2);
-
         if (deviceId) {
           recordScan(deviceId, exhibit.id, selectedLanguage, eventId);
         }
@@ -72,15 +87,19 @@ export default function ScanScreen({ navigation }) {
           exhibit,
           language: selectedLanguage,
         });
+        // scanning resets automatically via useFocusEffect when returning
       } catch (err) {
-        Alert.alert('Exhibit not found', 'Please try again.');
-        setTimeout(() => setScanning(true), 2000);
+        // Fix 3 — alert has OK button that resets scanner
+        Alert.alert(
+          'Exhibit Not Found',
+          'This QR code does not match any exhibit. Please try another.',
+          [{ text: 'OK', onPress: () => setScanning(false) }]
+        );
       }
     },
     [deviceId, navigation, scanning, selectedLanguage]
   );
 
-  // Still loading permission state
   if (!permission) {
     return (
       <SafeAreaView style={styles.screen}>
@@ -97,7 +116,6 @@ export default function ScanScreen({ navigation }) {
     );
   }
 
-  // Permission denied — must go to settings
   if (!permission.granted) {
     return (
       <SafeAreaView style={styles.screen}>
@@ -121,7 +139,6 @@ export default function ScanScreen({ navigation }) {
     );
   }
 
-  // Camera ready
   return (
     <SafeAreaView style={styles.screen}>
       <View style={styles.header}>
@@ -130,18 +147,20 @@ export default function ScanScreen({ navigation }) {
       </View>
 
       <View style={styles.cameraWrapper}>
-        <CameraView
-          style={styles.camera}
-          barCodeScannerSettings={{ barCodeTypes: ['qr'] }}
-          onBarcodeScanned={onBarcodeScanned}
-        >
-          <View style={styles.overlay}>
-            <View style={[styles.corner, styles.topLeft]} />
-            <View style={[styles.corner, styles.topRight]} />
-            <View style={[styles.corner, styles.bottomLeft]} />
-            <View style={[styles.corner, styles.bottomRight]} />
-          </View>
-        </CameraView>
+        {cameraActive && (
+          <CameraView
+            style={styles.camera}
+            barCodeScannerSettings={{ barCodeTypes: ['qr'] }}
+            onBarcodeScanned={scanning ? undefined : onBarcodeScanned}
+          >
+            <View style={styles.overlay}>
+              <View style={[styles.corner, styles.topLeft]} />
+              <View style={[styles.corner, styles.topRight]} />
+              <View style={[styles.corner, styles.bottomLeft]} />
+              <View style={[styles.corner, styles.bottomRight]} />
+            </View>
+          </CameraView>
+        )}
       </View>
 
       <View style={styles.hintCard}>
@@ -150,7 +169,7 @@ export default function ScanScreen({ navigation }) {
         </Text>
         <TouchableOpacity
           style={styles.browseButton}
-          onPress={() => navigation.navigate('Exhibits')}
+          onPress={() => navigation.navigate('Tabs', { screen: 'Exhibits' })}
         >
           <Text style={styles.browseButtonText}>Browse Exhibits</Text>
         </TouchableOpacity>

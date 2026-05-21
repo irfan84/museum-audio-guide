@@ -14,7 +14,7 @@ export const COLORS = {
 
 // Your backend API URL
 // Change this to your production URL before launch
-export const API_BASE_URL = 'http://192.168.0.102:3000';
+export const API_BASE_URL = 'http://172.20.10.3:3000';
 
 // Supported languages
 export const LANGUAGES = [

@@ -15,6 +15,7 @@ import { Audio } from 'expo-av';
 import { COLORS, API_BASE_URL } from '../constants';
 import { recordPlay } from '../services/api';
 import { useDeviceId } from '../hooks/useDeviceId';
+import { getCachedAudioUri } from '../services/audioCache';
 
 const SAVED_EXHIBITS_KEY = 'pmnh_saved_exhibits';
 const WAVEFORM_BARS = 12;
@@ -38,6 +39,7 @@ export default function PlayerScreen({ navigation, route }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isFinished, setIsFinished] = useState(false);
   const [positionMillis, setPositionMillis] = useState(0);
   const [durationMillis, setDurationMillis] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
@@ -58,11 +60,15 @@ export default function PlayerScreen({ navigation, route }) {
 
   const factEntry = exhibit?.facts?.find((item) => item.language_code === language);
 
+  // Fix — use exhibit_number as the bookmark key so SavedScreen
+  // can fetch exhibits correctly using getExhibitByNumber
   const loadBookmarkState = async () => {
     try {
       const saved = await AsyncStorage.getItem(SAVED_EXHIBITS_KEY);
       const parsed = saved ? JSON.parse(saved) : [];
-      setBookmarked(Array.isArray(parsed) && parsed.includes(exhibit?.id));
+      setBookmarked(
+        Array.isArray(parsed) && parsed.includes(exhibit?.exhibit_number)
+      );
     } catch (err) {
       console.log('Unable to load saved exhibits', err);
     }
@@ -73,10 +79,10 @@ export default function PlayerScreen({ navigation, route }) {
       const saved = await AsyncStorage.getItem(SAVED_EXHIBITS_KEY);
       const parsed = saved ? JSON.parse(saved) : [];
       const current = Array.isArray(parsed) ? parsed : [];
+      // Store exhibit_number not exhibit.id — SavedScreen uses getExhibitByNumber
       const updated = bookmarked
-        ? current.filter((id) => id !== exhibit?.id)
-        : [...current, exhibit?.id];
-
+        ? current.filter((n) => n !== exhibit?.exhibit_number)
+        : [...current, exhibit?.exhibit_number];
       await AsyncStorage.setItem(SAVED_EXHIBITS_KEY, JSON.stringify(updated));
       setBookmarked(!bookmarked);
     } catch (err) {
@@ -101,7 +107,7 @@ export default function PlayerScreen({ navigation, route }) {
 
   useEffect(() => {
     loadBookmarkState();
-  }, [exhibit?.id]);
+  }, [exhibit?.exhibit_number]);
 
   useEffect(() => {
     const prepareAudio = async () => {
@@ -132,12 +138,8 @@ export default function PlayerScreen({ navigation, route }) {
           shouldDuckAndroid: true,
         });
 
-        // Fix 1 — normalise file_path so double slashes never occur
-        const cleanPath = audioItem.file_path
-        .replace(/\\/g, '/')        // Windows backslashes → forward slashes
-        .replace(/^\.\//, '')       // remove leading ./
-        .replace(/^\/+/, '');       // remove leading slashes
-        const audioUri = `${API_BASE_URL}/${cleanPath}`;
+        // Use cache — downloads on first play, serves locally after
+        const audioUri = await getCachedAudioUri(audioItem.file_path);
 
         const { sound, status } = await Audio.Sound.createAsync(
           { uri: audioUri },
@@ -152,6 +154,10 @@ export default function PlayerScreen({ navigation, route }) {
             setDurationMillis(playbackStatus.durationMillis || 0);
             setIsPlaying(playbackStatus.isPlaying);
             playbackStatusRef.current = playbackStatus;
+            if (playbackStatus.didJustFinish) {
+              setIsFinished(true);
+              setIsPlaying(false);
+            }
           }
         );
 
@@ -196,6 +202,18 @@ export default function PlayerScreen({ navigation, route }) {
     } catch (err) {
       console.log('Play/pause error', err);
       Alert.alert('Playback error', 'Unable to play audio right now.');
+    }
+  };
+
+  const handleReplay = async () => {
+    if (!soundRef.current) return;
+    try {
+      await soundRef.current.setPositionAsync(0);
+      await soundRef.current.playAsync();
+      setIsFinished(false);
+      setPositionMillis(0);
+    } catch (err) {
+      console.log('Replay error', err);
     }
   };
 
@@ -268,8 +286,6 @@ export default function PlayerScreen({ navigation, route }) {
         </TouchableOpacity>
       </View>
 
-      {/* Fix 2 — wrap everything below header in ScrollView so
-          transcript and fact card are reachable on small screens */}
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -310,22 +326,42 @@ export default function PlayerScreen({ navigation, route }) {
           </View>
 
           <View style={styles.controlsRow}>
-            <TouchableOpacity onPress={() => handleSeek(-10000)} style={styles.controlButton}>
-              <Ionicons name="play-back" size={28} color={COLORS.green} />
+            <TouchableOpacity
+              onPress={() => handleSeek(-10000)}
+              style={styles.controlButton}
+            >
+              <Ionicons name="play-back" size={28} color={COLORS.greenLight} />
               <Text style={styles.controlLabel}>10s</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={handlePlayPause} style={styles.playButton}>
+
+            <TouchableOpacity
+              onPress={isFinished ? handleReplay : handlePlayPause}
+              style={[
+                styles.playButton,
+                isFinished && styles.playButtonReplay,
+              ]}
+            >
               <Ionicons
-                name={isPlaying ? 'pause' : 'play'}
+                name={isFinished ? 'refresh' : isPlaying ? 'pause' : 'play'}
                 size={32}
                 color={COLORS.white}
               />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => handleSeek(10000)} style={styles.controlButton}>
-              <Ionicons name="play-forward" size={28} color={COLORS.green} />
+
+            <TouchableOpacity
+              onPress={() => handleSeek(10000)}
+              style={styles.controlButton}
+            >
+              <Ionicons name="play-forward" size={28} color={COLORS.greenLight} />
               <Text style={styles.controlLabel}>10s</Text>
             </TouchableOpacity>
           </View>
+
+          {isFinished && (
+            <Text style={styles.finishedLabel}>
+              Audio complete — tap ↺ to replay
+            </Text>
+          )}
 
           <View style={styles.speedRow}>
             {[0.75, 1, 1.5, 2].map((rate) => (
@@ -338,7 +374,9 @@ export default function PlayerScreen({ navigation, route }) {
                 onPress={() => handleChangeRate(rate)}
               >
                 <Text
-                  style={playbackRate === rate ? styles.speedTextActive : styles.speedText}
+                  style={
+                    playbackRate === rate ? styles.speedTextActive : styles.speedText
+                  }
                 >
                   {rate}x
                 </Text>
@@ -357,7 +395,13 @@ export default function PlayerScreen({ navigation, route }) {
               ]}
               onPress={() => setActiveTranscriptTab('en')}
             >
-              <Text style={activeTranscriptTab === 'en' ? styles.tabTextActive : styles.tabText}>
+              <Text
+                style={
+                  activeTranscriptTab === 'en'
+                    ? styles.tabTextActive
+                    : styles.tabText
+                }
+              >
                 English
               </Text>
             </TouchableOpacity>
@@ -368,7 +412,13 @@ export default function PlayerScreen({ navigation, route }) {
               ]}
               onPress={() => setActiveTranscriptTab('ur')}
             >
-              <Text style={activeTranscriptTab === 'ur' ? styles.tabTextActive : styles.tabText}>
+              <Text
+                style={
+                  activeTranscriptTab === 'ur'
+                    ? styles.tabTextActive
+                    : styles.tabText
+                }
+              >
                 اردو
               </Text>
             </TouchableOpacity>
@@ -402,7 +452,9 @@ export default function PlayerScreen({ navigation, route }) {
               size={20}
               color={COLORS.white}
             />
-            <Text style={styles.actionText}>{bookmarked ? 'Saved' : 'Save'}</Text>
+            <Text style={styles.actionText}>
+              {bookmarked ? 'Saved' : 'Save'}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
             <Ionicons name="share-social" size={20} color={COLORS.white} />
@@ -419,7 +471,7 @@ export default function PlayerScreen({ navigation, route }) {
         </View>
       )}
 
-      {/* Fix 3 — error overlay shows a Retry button */}
+      {/* ── Error overlay ── */}
       {error && (
         <View style={styles.errorOverlay}>
           <Ionicons name="musical-notes-off" size={48} color={COLORS.grayText} />
@@ -442,8 +494,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.white,
   },
-
-  // Header
   header: {
     backgroundColor: COLORS.green,
     paddingHorizontal: 18,
@@ -482,12 +532,8 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   bookmarkButton: { padding: 6 },
-
-  // Scroll
   scrollView: { flex: 1 },
   scrollContent: { paddingBottom: 32 },
-
-  // Player card
   playerCard: {
     margin: 16,
     borderRadius: 24,
@@ -532,7 +578,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
-    marginBottom: 18,
+    marginBottom: 10,
   },
   controlButton: { alignItems: 'center' },
   controlLabel: {
@@ -549,6 +595,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 4,
+  },
+  playButtonReplay: {
+    backgroundColor: COLORS.greenMid,
+  },
+  finishedLabel: {
+    color: COLORS.greenLight,
+    fontSize: 11,
+    textAlign: 'center',
+    marginBottom: 12,
+    opacity: 0.8,
   },
   speedRow: {
     flexDirection: 'row',
@@ -569,8 +625,6 @@ const styles = StyleSheet.create({
   },
   speedText: { color: COLORS.greenLight, fontWeight: '700', fontSize: 12 },
   speedTextActive: { color: COLORS.white, fontWeight: '700', fontSize: 12 },
-
-  // Transcript
   transcriptCard: {
     marginHorizontal: 16,
     borderRadius: 20,
@@ -605,8 +659,6 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     writingDirection: 'rtl',
   },
-
-  // Fact card
   factCard: {
     marginHorizontal: 16,
     marginBottom: 14,
@@ -627,8 +679,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
   },
-
-  // Actions
   actionsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -651,8 +701,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginLeft: 7,
   },
-
-  // Loading
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(255,255,255,0.92)',
@@ -665,8 +713,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 12,
   },
-
-  // Error
   errorOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: COLORS.white,

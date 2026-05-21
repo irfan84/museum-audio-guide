@@ -79,10 +79,14 @@ export default function HomeScreen({ navigation }) {
 
   // Fix 1 — exhibit card navigates to Player, not Scan
   const renderExhibitCard = ({ item }) => {
-    const meta = categoryMeta[item.category] || {
-      icon: 'leaf',
-      label: item.category || 'Exhibit',
-    };
+    // Capitalise first letter so 'geology' matches 'Geology'
+const categoryKey = item.category
+  ? item.category.charAt(0).toUpperCase() + item.category.slice(1).toLowerCase()
+  : '';
+const meta = categoryMeta[categoryKey] || {
+  icon: 'leaf',
+  label: item.category || 'Exhibit',
+};
 
     return (
       <Pressable

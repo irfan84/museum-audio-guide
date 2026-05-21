@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { queueEvent } from './offlineQueue';
 import { API_BASE_URL } from '../constants';
 
 // Create axios instance with base URL and timeout
@@ -37,31 +38,34 @@ export const getExhibitByNumber = async (number) => {
 
 // Record a QR scan event
 export const recordScan = async (deviceId, exhibitId, languageCode, eventId) => {
+  const payload = {
+    device_id:     deviceId,
+    exhibit_id:    exhibitId,
+    language_code: languageCode,
+    event_id:      eventId,
+  };
   try {
-    await api.post('/api/events/scan', {
-      device_id:     deviceId,
-      exhibit_id:    exhibitId,
-      language_code: languageCode,
-      event_id:      eventId,
-    });
+    await api.post('/api/events/scan', payload);
   } catch (err) {
-    // Silently fail — will be queued offline
-    console.log('Scan event queued for offline sync');
+    // Offline — save to queue for later sync
+    await queueEvent('scan', payload);
   }
 };
 
 // Record an audio play event
 export const recordPlay = async (deviceId, exhibitId, languageCode, eventId) => {
+  const payload = {
+    device_id:     deviceId,
+    exhibit_id:    exhibitId,
+    language_code: languageCode,
+    event_id:      eventId,
+  };
   try {
-    const response = await api.post('/api/events/play', {
-      device_id:     deviceId,
-      exhibit_id:    exhibitId,
-      language_code: languageCode,
-      event_id:      eventId,
-    });
+    const response = await api.post('/api/events/play', payload);
     return response.data.play_event_id;
   } catch (err) {
-    console.log('Play event queued for offline sync');
+    // Offline — save to queue for later sync
+    await queueEvent('play', payload);
     return null;
   }
 };

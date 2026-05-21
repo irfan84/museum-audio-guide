@@ -14,12 +14,18 @@ router.get('/', async (req, res) => {
     e.status,
     h.name  AS hall_name,
     t.title,
-    t.language_code
+    t.language_code,
+    a.duration_secs
   FROM exhibits e
-  LEFT JOIN halls h ON h.id = e.hall_id
-  LEFT JOIN exhibit_translations t ON t.exhibit_id = e.id
+  LEFT JOIN halls h
+    ON h.id = e.hall_id
+  LEFT JOIN exhibit_translations t
+    ON t.exhibit_id = e.id
+  LEFT JOIN audio_files a
+    ON a.exhibit_id = e.id
+    AND a.language_code = 'en'
   WHERE e.status = 'live'
-  ORDER BY e.exhibit_number ASC, t.language_code
+  ORDER BY e.exhibit_number ASC
 `);
     res.json({ success: true, data: result.rows });
   } catch (err) {
